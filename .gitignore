@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+venv/
+env/
+
+# Node.js
+node_modules/
+dist/
+npm-debug.log
+yarn-error.log
+
+# IDE / System
+.vscode/
+.idea/
+*.log
+.DS_Store
+Thumbs.db
+
+# Local Config / Secrets
+.env

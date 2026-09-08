@@ -1,0 +1,8 @@
+{
+"track_id": "download_official_20260906",
+"type": "feature",
+"status": "new",
+"created_at": "2026-09-06T22:20:00Z",
+"updated_at": "2026-09-06T22:20:00Z",
+"description": "Implementar download oficial via Files API"
+}

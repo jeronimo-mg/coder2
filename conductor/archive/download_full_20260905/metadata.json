@@ -1,0 +1,8 @@
+{
+"track_id": "download_full_20260905",
+"type": "feature",
+"status": "new",
+"created_at": "2026-09-06T08:58:00Z",
+"updated_at": "2026-09-06T08:58:00Z",
+"description": "Implementação completa de download de arquivos (polling e transferência)"
+}
