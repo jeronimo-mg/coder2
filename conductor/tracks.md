@@ -7,5 +7,17 @@ This file tracks all major tracks for the project. Each track has its own detail
 - [~] **Track: Integrar a extensão DesktopCommanderMCP**
   *Link: [./tracks/desktop_commander_20260906/](./tracks/desktop_commander_20260906/)*
 
+- [x] **Track: UI/UX Modernization**
+  *Link: [./tracks/ui_ux_20260908/](./tracks/ui_ux_20260908/)*
+
+- [x] **Track: Sandbox Persistence/Reuse**
+  *Link: [./tracks/sandbox_persistence_20260908/](./tracks/sandbox_persistence_20260908/)*
+
+- [x] **Track: Robust Code Download**
+  *Link: [./tracks/robust_download_20260909/](./tracks/robust_download_20260909/)*
+
+- [ ] **Track: MCP Host Integration**
+  *Link: [./tracks/mcp_host_20260910/](./tracks/mcp_host_20260910/)*
+
 
 
