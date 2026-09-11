@@ -4,7 +4,7 @@ This file tracks all major tracks for the project. Each track has its own detail
 
 ---
 
-- [~] **Track: Integrar a extensão DesktopCommanderMCP**
+- [x] **Track: Integrar a extensão DesktopCommanderMCP**
   *Link: [./tracks/desktop_commander_20260906/](./tracks/desktop_commander_20260906/)*
 
 - [x] **Track: UI/UX Modernization**
@@ -19,5 +19,5 @@ This file tracks all major tracks for the project. Each track has its own detail
 - [ ] **Track: MCP Host Integration**
   *Link: [./tracks/mcp_host_20260910/](./tracks/mcp_host_20260910/)*
 
-
-
+- [x] **Track: Conductor Integration**
+  *Link: [./tracks/conductor_integration_20260911/](./tracks/conductor_integration_20260911/)*
