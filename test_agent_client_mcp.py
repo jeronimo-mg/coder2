@@ -13,6 +13,13 @@ class TestAgentClientMCP(unittest.IsolatedAsyncioTestCase):
     def test_default_mcp_manager_is_none(self):
         self.assertIsNone(self.client.mcp_manager)
 
+    @patch('agent_client.genai.Client')
+    @patch('agent_client.get_api_key', return_value='test_key')
+    def test_init_with_mcp_manager(self, mock_key, mock_genai):
+        mock_mgr = MagicMock(spec=MCPHostManager)
+        client = AntigravityClient(project_name="test_init", mcp_manager=mock_mgr)
+        self.assertEqual(client.mcp_manager, mock_mgr)
+
     def test_set_mcp_manager(self):
         mock_mgr = MagicMock(spec=MCPHostManager)
         self.client.set_mcp_manager(mock_mgr)
