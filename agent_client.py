@@ -1,3 +1,6 @@
+import asyncio
+from typing import Optional, Any, Dict, List
+from mcp_manager import MCPHostManager
 from google import genai
 from config import get_api_key
 import time
@@ -135,13 +138,46 @@ def extract_output_text(source):
     return ''.join(reversed(text_parts))
 
 class AntigravityClient:
-    def __init__(self, project_name="default"):
+    def __init__(self, project_name="default", mcp_manager: Optional[MCPHostManager] = None):
         self.api_key = get_api_key()
         self.client = genai.Client(api_key=self.api_key)
         self.storage = SandboxStorage()
         self.project_name = project_name
         self.last_environment_id = None
         self.last_interaction_id = None
+        self.mcp_manager = mcp_manager
+
+    def set_mcp_manager(self, mcp_manager: Optional[MCPHostManager]):
+        """Attach or update the MCPHostManager instance."""
+        self.mcp_manager = mcp_manager
+
+    def attach_desktop_commander(self, project_dir: Optional[str] = None, **kwargs) -> MCPHostManager:
+        """Helper to create and attach a DesktopCommander MCP host."""
+        mgr = MCPHostManager.create_desktop_commander(project_dir=project_dir, **kwargs)
+        self.set_mcp_manager(mgr)
+        return mgr
+
+    async def get_mcp_tools(self) -> Any:
+        """Returns tools exposed by the attached MCP host, connecting if needed."""
+        if not self.mcp_manager:
+            return []
+        if not self.mcp_manager.is_connected:
+            await self.mcp_manager.connect()
+        return await self.mcp_manager.list_tools()
+
+    async def call_mcp_tool(self, name: str, arguments: dict) -> Any:
+        """Executes a tool on the attached MCP host."""
+        if not self.mcp_manager:
+            raise RuntimeError("No MCPHostManager attached to AntigravityClient.")
+        return await self.mcp_manager.call_tool(name, arguments)
+
+    def get_mcp_tools_sync(self) -> Any:
+        """Synchronous wrapper for get_mcp_tools."""
+        return asyncio.run(self.get_mcp_tools())
+
+    def call_mcp_tool_sync(self, name: str, arguments: dict) -> Any:
+        """Synchronous wrapper for call_mcp_tool."""
+        return asyncio.run(self.call_mcp_tool(name, arguments))
 
     def _sync_storage_env(self, interaction_id, env_id):
         """Helper to safely synchronize environment_id and interaction_id to SandboxStorage."""
