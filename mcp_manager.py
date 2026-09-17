@@ -140,15 +140,23 @@ class MCPHostManager:
 def format_mcp_tools_context(tools: Optional[List[Any]]) -> str:
     """
     Formats the list of MCP tools into a Markdown section suitable for
-    injecting into the agent's context prompt.
+    injecting into the agent's context prompt with clear operational guidelines.
     """
     if not tools:
         return ""
 
     lines = [
         "## Local MCP Tools (DesktopCommander)",
-        "The host environment has Model Context Protocol (MCP) local tools available.",
-        "To invoke any local tool, output a tool call tag in this exact format:",
+        "DesktopCommander is an active Model Context Protocol (MCP) server running on the user's host machine (outside your sandbox container).",
+        "The Coderagy CLI harness automatically intercepts `<mcp_call>` tags from your response, executes the requested tool on the user's machine, and feeds the output back to you in `<mcp_result>`.",
+        "",
+        "### Operational Instructions (Zero-Hesitation Execution):",
+        "1. **Direct Invocation:** When the user asks to create, modify, inspect files on their machine or run host commands with DesktopCommander, IMMEDIATELY emit the `<mcp_call>` tag. Do NOT search for DesktopCommander inside your sandbox container, do NOT test if the tag is supported, and do NOT inspect DesktopCommander source code.",
+        "2. **DOCX Document Generation:** To create or edit Word documents (`.docx`), call `write_file` with `\"mode\": \"rewrite\"`. DesktopCommander automatically converts standard Markdown text (`# Heading 1`, `## Heading 2`, `- bullet list`, formatted paragraphs) into native styled DOCX XML. You do NOT need to write Python scripts or install docx packages.",
+        "3. **Excel & PDF Support:**",
+        "   - For Excel (`.xlsx`, `.xls`), use `write_file` with JSON 2D array content.",
+        "   - For PDF (`.pdf`), use `write_pdf`.",
+        "4. **Invocation Format:**",
         '<mcp_call name="tool_name">{"arg_name": "arg_value"}</mcp_call>',
         "",
         "Available Tools:"

@@ -49,6 +49,9 @@ class TestMCPDiscovery(unittest.TestCase):
         ]
         context = format_mcp_tools_context(tools)
         self.assertIn("## Local MCP Tools (DesktopCommander)", context)
+        self.assertIn("DesktopCommander is an active Model Context Protocol (MCP) server", context)
+        self.assertIn("Zero-Hesitation Execution", context)
+        self.assertIn("DOCX Document Generation", context)
         self.assertIn("read_file", context)
         self.assertIn("Read contents from local filesystem", context)
         self.assertIn("path", context)
