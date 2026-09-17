@@ -4,6 +4,7 @@ from contextlib import AsyncExitStack
 from typing import List, Optional, Any, Dict
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
+from rich.table import Table
 
 class MCPHostManager:
     """Manages connection and tool execution with an MCP (Model Context Protocol) server."""
@@ -131,3 +132,57 @@ class MCPHostManager:
             "DesktopCommander server script not found and npx fallback is disabled. "
             "Please install or build DesktopCommander or specify DESKTOP_COMMANDER_PATH."
         )
+
+
+def format_mcp_tools_context(tools: Optional[List[Any]]) -> str:
+    """
+    Formats the list of MCP tools into a Markdown section suitable for
+    injecting into the agent's context prompt.
+    """
+    if not tools:
+        return ""
+
+    lines = [
+        "## Local MCP Tools (DesktopCommander)",
+        "The host environment has Model Context Protocol (MCP) local tools available.",
+        "Available Tools:"
+    ]
+
+    for tool in tools:
+        name = getattr(tool, 'name', None) or (tool.get('name') if isinstance(tool, dict) else str(tool))
+        desc = getattr(tool, 'description', '') or (tool.get('description', '') if isinstance(tool, dict) else '')
+        schema = getattr(tool, 'inputSchema', {}) or (tool.get('inputSchema', {}) if isinstance(tool, dict) else {})
+
+        props = schema.get('properties', {}) if isinstance(schema, dict) else {}
+        param_list = list(props.keys()) if props else []
+        params_str = f" (Parameters: {', '.join(param_list)})" if param_list else ""
+
+        desc_str = f": {desc}" if desc else ""
+        lines.append(f"- `{name}`{params_str}{desc_str}")
+
+    return "\n".join(lines)
+
+
+def get_mcp_tools_table(tools: Optional[List[Any]]) -> Table:
+    """
+    Builds a Rich Table displaying discovered MCP tools.
+    """
+    table = Table(title="DesktopCommander MCP Tools", border_style="cyan")
+    table.add_column("Tool Name", style="bold cyan", no_wrap=True)
+    table.add_column("Description", style="white")
+    table.add_column("Parameters", style="dim green")
+
+    if not tools:
+        table.add_row("(none)", "No tools discovered", "")
+        return table
+
+    for tool in tools:
+        name = getattr(tool, 'name', None) or (tool.get('name') if isinstance(tool, dict) else str(tool))
+        desc = getattr(tool, 'description', '') or (tool.get('description', '') if isinstance(tool, dict) else '')
+        schema = getattr(tool, 'inputSchema', {}) or (tool.get('inputSchema', {}) if isinstance(tool, dict) else {})
+        props = schema.get('properties', {}) if isinstance(schema, dict) else {}
+        param_list = list(props.keys()) if props else []
+        params_str = ", ".join(param_list) if param_list else "(none)"
+        table.add_row(name, desc or "(no description)", params_str)
+
+    return table

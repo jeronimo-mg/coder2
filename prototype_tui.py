@@ -11,7 +11,7 @@ import json
 import threading
 import asyncio
 import re
-from mcp_manager import MCPHostManager
+from mcp_manager import MCPHostManager, format_mcp_tools_context, get_mcp_tools_table
 
 console = Console()
 conductor = ConductorManager()
@@ -51,6 +51,8 @@ async def initialize_mcp(mcp_mgr):
 def run_tui(initial_environment_id=None, default_show_thoughts=True):
     client = AntigravityClient()
     mcp_mgr = get_mcp_manager()
+    if mcp_mgr:
+        client.set_mcp_manager(mcp_mgr)
 
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
@@ -188,7 +190,8 @@ def run_tui(initial_environment_id=None, default_show_thoughts=True):
             if cleaned.lower().startswith('/tools'):
                 if mcp_mgr:
                     tools_result = loop.run_until_complete(mcp_mgr.list_tools())
-                    console.print(f"Available tools: {[t.name for t in tools_result.tools]}")
+                    tool_items = getattr(tools_result, "tools", tools_result) if tools_result else []
+                    console.print(get_mcp_tools_table(tool_items))
                 else:
                     console.print("[yellow]MCP host is not connected.[/yellow]")
                 continue
@@ -258,14 +261,22 @@ def run_tui(initial_environment_id=None, default_show_thoughts=True):
                             raise follow_up_err
 
                 if not interaction:
-                    # Inject Conductor Plugin context on prompt if available
+                    # Inject Conductor Plugin context & MCP tools context on prompt if available
                     agent_prompt = cleaned
+                    context_parts = []
                     if conductor.is_initialized():
                         sdd_context = conductor.get_agent_context(max_chars=2500)
                         if sdd_context:
-                            agent_prompt = f"{sdd_context}\n\n---\nUser Request:\n{cleaned}"
-                            console.print("[dim]Enriched prompt with Conductor Plugin context.[/dim]")
-
+                            context_parts.append(sdd_context)
+                    mcp_tools_list = getattr(tools, "tools", tools) if tools else []
+                    if mcp_tools_list:
+                        mcp_context = format_mcp_tools_context(mcp_tools_list)
+                        if mcp_context:
+                            context_parts.append(mcp_context)
+                    if context_parts:
+                        full_context = "\n\n".join(context_parts)
+                        agent_prompt = f"{full_context}\n\n---\nUser Request:\n{cleaned}"
+                        console.print("[dim]Enriched prompt with Conductor & MCP context.[/dim]")
                     try:
                         interaction = client.create_interaction(agent_prompt, active_environment_id)
                         active_interaction_id = interaction.id
