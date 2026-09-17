@@ -1,7 +1,7 @@
 # Implementation Plan: MCP Host Integration
 
 ## Phase 1: Research
-- [ ] Task: Evaluate MCP Python SDK for host implementation.
+- [x] Task: Evaluate MCP Python SDK for host implementation. (5eddc75)
 - [ ] Task: Define how to launch and connect to the DesktopCommander server process from Coderagy.
 
 ## Phase 2: Implementation
