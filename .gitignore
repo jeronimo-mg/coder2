@@ -9,7 +9,9 @@ env/
 
 # Node.js
 node_modules/
+desktop-commander/node_modules/
 dist/
+!desktop-commander/dist/
 npm-debug.log
 yarn-error.log
 
