@@ -85,6 +85,55 @@ def extract_step_action(step):
 
     return None
 
+def extract_output_text(source):
+    """
+    Extracts output_text from an Interaction, InteractionSseEventInteraction, or list of steps.
+    Safely inspects model_output steps and text content items.
+    """
+    if source is None:
+        return ""
+
+    if hasattr(source, 'output_text') and source.output_text:
+        return str(source.output_text)
+    if isinstance(source, dict) and source.get('output_text'):
+        return str(source['output_text'])
+
+    steps = getattr(source, 'steps', source if isinstance(source, list) else None)
+    if not steps or not isinstance(steps, list):
+        return ""
+
+    text_parts = []
+    collecting = False
+    for step in reversed(steps):
+        step_type = getattr(step, 'type', None) or (step.get('type') if isinstance(step, dict) else None)
+        if step_type == 'user_input':
+            break
+        if step_type != 'model_output':
+            if collecting:
+                break
+            continue
+
+        content = getattr(step, 'content', None) or (step.get('content') if isinstance(step, dict) else None)
+        if not isinstance(content, list):
+            if collecting:
+                break
+            continue
+
+        should_stop = False
+        for item in reversed(content):
+            item_type = getattr(item, 'type', None) or (item.get('type') if isinstance(item, dict) else None)
+            if item_type == 'text':
+                collecting = True
+                text = getattr(item, 'text', None) or (item.get('text') if isinstance(item, dict) else '')
+                text_parts.append(text if isinstance(text, str) else '')
+            elif collecting:
+                should_stop = True
+                break
+        if should_stop:
+            break
+
+    return ''.join(reversed(text_parts))
+
 class AntigravityClient:
     def __init__(self, project_name="default"):
         self.api_key = get_api_key()
@@ -93,8 +142,6 @@ class AntigravityClient:
         self.project_name = project_name
 
     def create_interaction(self, input_text, environment_id=None):
-        # If environment_id is provided, reuse it by passing it directly as the environment parameter.
-        # Otherwise, use 'remote' to create a new one.
         env_config = environment_id if environment_id else {'type': 'remote'}
 
         interaction = self.client.interactions.create(
@@ -103,7 +150,6 @@ class AntigravityClient:
             background=True,
             environment=env_config
         )
-        # Debugging log
         print(f"DEBUG: Interaction created. ID: {interaction.id}, Env ID: {getattr(interaction, 'environment_id', None)}")
 
         if self.project_name and self.project_name != "default" and hasattr(self, 'storage') and self.storage:
@@ -116,8 +162,6 @@ class AntigravityClient:
         return interaction
 
     def send_follow_up(self, interaction_id, environment_id, input_text):
-        # Use previous_interaction_id to continue the conversation
-        # AND pass environment_id directly as the environment parameter
         return self.client.interactions.create(
             agent='antigravity-preview-05-2026',
             input=input_text,
@@ -126,15 +170,17 @@ class AntigravityClient:
             environment=environment_id
         )
 
-    def monitor_interaction(self, interaction_id, on_thought=None, on_step=None, poll_interval=2, timeout=600):
+    def monitor_interaction(self, interaction_id, on_thought=None, on_step=None, on_chunk=None, poll_interval=2, timeout=600):
         """
-        Monitors an ongoing interaction with real-time thought and action tracking.
+        Monitors an ongoing interaction with real-time thought, action, and response tracking.
         Calls on_thought(thought_text, step_index) when agent thinking is detected.
         Calls on_step(action_type, details, step_index) when an execution step occurs.
+        Calls on_chunk(text_chunk) when streamed response text arrives.
         Returns the output text of the completed interaction.
         """
         start_time = time.time()
         seen_steps_count = 0
+        streamed_text_chunks = []
 
         # Attempt to stream events if supported by SDK and backend
         try:
@@ -164,20 +210,55 @@ class AntigravityClient:
                                 text = getattr(content, 'text', None) if content else None
                                 if text and on_thought:
                                     on_thought(text, idx)
+                            elif delta_type == 'text':
+                                text = getattr(delta, 'text', None) or (delta.get('text') if isinstance(delta, dict) else None)
+                                if text:
+                                    streamed_text_chunks.append(text)
+                                    if on_chunk:
+                                        on_chunk(text)
 
                     elif event_type == 'interaction.completed':
                         final_interaction = getattr(event, 'interaction', None)
+                        # 1. First attempt to fetch the interaction object via standard get (has output_text populated)
+                        try:
+                            completed_full = self.client.interactions.get(interaction_id)
+                            out = getattr(completed_full, 'output_text', None) or extract_output_text(completed_full)
+                            if out:
+                                return out
+                        except Exception:
+                            pass
+
+                        # 2. Extract from steps on the event interaction
                         if final_interaction:
-                            return getattr(final_interaction, 'output_text', None) or ""
+                            extracted = extract_output_text(final_interaction)
+                            if extracted:
+                                return extracted
+
+                        # 3. Accumulated text deltas
+                        if streamed_text_chunks:
+                            return ''.join(streamed_text_chunks)
+
+                        return ""
 
                     elif event_type == 'error':
                         err = getattr(event, 'error', 'Stream error')
                         raise Exception(f"Interaction failed: {err}")
+
+                # If stream finished without explicit completed event
+                try:
+                    completed_full = self.client.interactions.get(interaction_id)
+                    if completed_full.status == "completed":
+                        return getattr(completed_full, 'output_text', None) or extract_output_text(completed_full) or ''.join(streamed_text_chunks)
+                except Exception:
+                    pass
+                if streamed_text_chunks:
+                    return ''.join(streamed_text_chunks)
+
         except Exception as stream_err:
             if "Interaction failed:" in str(stream_err):
                 raise
 
-        # Polling loop
+        # Polling loop (used if streaming is not supported or connection dropped)
         while True:
             interaction = self.client.interactions.get(interaction_id)
             steps = getattr(interaction, 'steps', None) or []
@@ -194,7 +275,15 @@ class AntigravityClient:
                 seen_steps_count += 1
 
             if interaction.status == "completed":
-                return getattr(interaction, 'output_text', None) or ""
+                out = getattr(interaction, 'output_text', None)
+                if out:
+                    return out
+                extracted = extract_output_text(interaction)
+                if extracted:
+                    return extracted
+                if streamed_text_chunks:
+                    return ''.join(streamed_text_chunks)
+                return ""
             elif interaction.status == "failed":
                 raise Exception(f"Interaction failed: {interaction.error}")
 
@@ -221,7 +310,7 @@ class AntigravityClient:
 
             if interaction.status == "completed":
                 print("\nArchive completed successfully.")
-                return interaction.output_text
+                return getattr(interaction, 'output_text', None) or extract_output_text(interaction)
             elif interaction.status == "failed":
                 raise Exception(f"Archive failed: {interaction.error}")
 

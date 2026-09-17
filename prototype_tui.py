@@ -2,7 +2,8 @@ from prompt_toolkit import PromptSession
 from prompt_toolkit.formatted_text import HTML
 from rich.console import Console
 from rich.panel import Panel
-from agent_client import AntigravityClient
+from rich.markdown import Markdown
+from agent_client import AntigravityClient, extract_output_text
 from conductor_manager import ConductorManager
 import os
 import time
@@ -62,7 +63,6 @@ def run_tui(initial_environment_id=None, default_show_thoughts=True):
 
     plugin_info = conductor.get_plugin_info()
     plugin_status_str = f"Conductor Plugin: Active (v{plugin_info['version']})" if plugin_info["installed"] else "Conductor Plugin: Available"
-    thoughts_status_str = "Ativado" if show_thoughts else "Desativado"
 
     welcome_msg = (
         f"[bold green]Coderagy CLI Interactive Mode[/bold green]\n"
@@ -260,6 +260,14 @@ def run_tui(initial_environment_id=None, default_show_thoughts=True):
                     on_step=handle_step
                 )
 
+            # Fallback if raw_output was empty: retrieve interaction directly
+            if not raw_output or not raw_output.strip():
+                try:
+                    direct_int = client.client.interactions.get(active_interaction_id)
+                    raw_output = getattr(direct_int, 'output_text', None) or extract_output_text(direct_int) or ""
+                except Exception:
+                    pass
+
             # Check for embedded thought tags if any
             embedded_thoughts, clean_response = parse_embedded_thoughts(raw_output)
             if show_thoughts and embedded_thoughts:
@@ -270,8 +278,12 @@ def run_tui(initial_environment_id=None, default_show_thoughts=True):
                         border_style="magenta"
                     ))
 
-            final_text = clean_response if clean_response else raw_output
-            console.print(Panel(final_text, title="Agent Response", border_style="green"))
+            final_text = clean_response.strip() if clean_response.strip() else raw_output.strip()
+            if final_text:
+                console.print(Panel(final_text, title="Agent Response", border_style="green"))
+            else:
+                if not embedded_thoughts:
+                    console.print("[dim yellow]O agente concluiu a execução sem gerar resposta de texto.[/dim yellow]")
 
         except Exception as e:
             console.print(f"[red]Error: {e}[/red]")

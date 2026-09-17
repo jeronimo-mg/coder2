@@ -3,13 +3,16 @@ from unittest.mock import MagicMock, patch
 from agent_client import (
     AntigravityClient,
     extract_thought_from_step,
-    extract_step_action
+    extract_step_action,
+    extract_output_text
 )
 from prototype_tui import parse_embedded_thoughts
+from google.genai._gaos.types.interactions import (
+    ModelOutputStep, TextContent, InteractionSseEventInteraction
+)
 
 class TestAgentThinking(unittest.TestCase):
     def test_extract_thought_from_object(self):
-        # Mock ThoughtStep with summary containing TextContent-like items
         mock_step = MagicMock()
         mock_step.type = 'thought'
         item1 = MagicMock()
@@ -79,10 +82,61 @@ class TestAgentThinking(unittest.TestCase):
         self.assertEqual(thoughts, ["Analyzing AST..."])
         self.assertEqual(cleaned, "Code looks valid.")
 
+    def test_extract_output_text_from_sse_event_interaction(self):
+        step = ModelOutputStep(type='model_output', content=[TextContent(type='text', text='Resposta correta!')])
+        event_int = InteractionSseEventInteraction(id='123', status='completed', steps=[step])
+        # Event interaction does not have output_text property
+        self.assertFalse(hasattr(event_int, 'output_text'))
+        # extract_output_text should successfully extract it from steps
+        extracted = extract_output_text(event_int)
+        self.assertEqual(extracted, "Resposta correta!")
+
     @patch('agent_client.genai.Client')
     @patch('agent_client.get_api_key', return_value='test_key')
     @patch('time.sleep', return_value=None)
-    def test_monitor_interaction_with_thoughts(self, mock_sleep, mock_get_api_key, mock_genai):
+    def test_monitor_interaction_streaming_with_thought_and_response(self, mock_sleep, mock_get_api_key, mock_genai):
+        mock_client = MagicMock()
+        mock_genai.return_value = mock_client
+
+        # Mock SSE stream with thought delta, text delta, and completion event
+        event1 = MagicMock()
+        event1.event_type = 'step.delta'
+        event1.index = 0
+        delta1 = MagicMock()
+        delta1.type = 'thought_summary'
+        delta1.content.text = "Pensando sobre o código..."
+        event1.delta = delta1
+
+        event2 = MagicMock()
+        event2.event_type = 'step.delta'
+        event2.index = 1
+        delta2 = MagicMock()
+        delta2.type = 'text'
+        delta2.text = "Esta é a resposta final do agente."
+        event2.delta = delta2
+
+        event3 = MagicMock()
+        event3.event_type = 'interaction.completed'
+        step = ModelOutputStep(type='model_output', content=[TextContent(type='text', text='Esta é a resposta final do agente.')])
+        event3.interaction = InteractionSseEventInteraction(id='123', status='completed', steps=[step])
+
+        mock_stream = [event1, event2, event3]
+        mock_client.interactions.get.return_value = mock_stream
+
+        captured_thoughts = []
+        client = AntigravityClient()
+        result = client.monitor_interaction(
+            "test_id",
+            on_thought=lambda t, idx: captured_thoughts.append(t)
+        )
+
+        self.assertEqual(captured_thoughts, ["Pensando sobre o código..."])
+        self.assertEqual(result, "Esta é a resposta final do agente.")
+
+    @patch('agent_client.genai.Client')
+    @patch('agent_client.get_api_key', return_value='test_key')
+    @patch('time.sleep', return_value=None)
+    def test_monitor_interaction_polling_with_thoughts(self, mock_sleep, mock_get_api_key, mock_genai):
         mock_client = MagicMock()
         mock_genai.return_value = mock_client
 
@@ -107,7 +161,8 @@ class TestAgentThinking(unittest.TestCase):
         interaction2.steps = [mock_thought_step, mock_code_step]
         interaction2.output_text = "Task finished successfully."
 
-        mock_client.interactions.get.side_effect = [interaction1, interaction2]
+        # stream=True raises exception so it falls back to polling
+        mock_client.interactions.get.side_effect = [Exception("Stream not available"), interaction1, interaction2]
 
         captured_thoughts = []
         captured_steps = []
