@@ -10,4 +10,4 @@
 - [x] Task: Enable tool execution via the chat. (ec62f0b)
 
 ## Phase 3: Verification
-- [ ] Task: Verify Coderagy can natively call DesktopCommander tools.
+- [x] Task: Verify Coderagy can natively call DesktopCommander tools. (2877c98)
