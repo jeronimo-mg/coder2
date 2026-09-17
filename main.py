@@ -1,8 +1,10 @@
 import argparse
 import os
+import sys
 from storage import SandboxStorage
 from rich.console import Console
 from rich.panel import Panel
+from agent_client import AntigravityClient
 
 console = Console()
 
@@ -33,8 +35,10 @@ def main(args=None):
 
     parser.add_argument("--version", action="version", version="%(prog)s 0.1.0")
     parser.add_argument("--no-interactive", action="store_false", dest="interactive", help="Disable interactive TUI mode")
+    parser.add_argument("--show-thoughts", action="store_true", default=True, help="Display real-time agent reasoning and thoughts (default: enabled)")
+    parser.add_argument("--no-thoughts", action="store_false", dest="show_thoughts", help="Hide real-time agent reasoning and thoughts")
     parser.set_defaults(interactive=True)
-    
+
     parsed_args = parser.parse_args(args)
     storage = SandboxStorage()
 
@@ -56,19 +60,18 @@ def main(args=None):
             return
 
         elif parsed_args.command == "download":
-            from agent_client import AntigravityClient
             dest = input("Enter destination path for download: ").strip('\"').strip("'")
             if os.path.exists(dest):
                 confirm = input(f"File {dest} exists. Overwrite? (y/n): ")
                 if confirm.lower() != 'y':
                     console.print("[bold yellow]Download cancelled.[/bold yellow]")
                     return
-            
+
             state = storage.load_state(parsed_args.project_name)
             if not state or not state.get("environment_id"):
                 console.print(Panel(f"[bold red]No active sandbox found for '{parsed_args.project_name}'. Please initialize it first.[/bold red]", title="Error"))
                 return
-                
+
             environment_id = state.get("environment_id")
             console.print(f"[dim]Initiating download for environment: {environment_id}[/dim]")
             client = AntigravityClient(project_name=parsed_args.project_name)
@@ -172,7 +175,7 @@ def main(args=None):
             return
 
     # If no command and interactive is enabled, run the interactive TUI
-    if parsed_args.interactive:
+    if parsed_args.interactive and args is None:
         selected_env_id = None
         if os.path.exists(".sandbox"):
             sandboxes = [f for f in os.listdir(".sandbox") if f.endswith(".json")]
@@ -181,7 +184,7 @@ def main(args=None):
                 for i, sb in enumerate(sandboxes):
                     console.print(f"[{i+1}] {sb.replace('.json', '')}")
                 console.print("[0] Create new sandbox")
-                
+
                 try:
                     choice = input("Select an option: ")
                     if choice.isdigit() and 0 < int(choice) <= len(sandboxes):
@@ -195,10 +198,10 @@ def main(args=None):
                     pass
 
         from prototype_tui import run_tui
-        run_tui(initial_environment_id=selected_env_id)
+        run_tui(initial_environment_id=selected_env_id, default_show_thoughts=parsed_args.show_thoughts)
         return
 
-    console.print(Panel("[bold]Coderagy CLI initialized.[/bold]", title="Status"))
+    print("Coderagy CLI initialized.")
 
 if __name__ == "__main__":
     main()

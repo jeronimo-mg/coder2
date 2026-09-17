@@ -9,10 +9,25 @@ import time
 import json
 import threading
 import asyncio
+import re
 from mcp_manager import MCPHostManager
 
 console = Console()
 conductor = ConductorManager()
+
+def parse_embedded_thoughts(text):
+    """
+    Extracts embedded <thought>...</thought> or <thinking>...</thinking> tags from text.
+    Returns (list_of_thoughts, cleaned_text).
+    """
+    if not text:
+        return [], ""
+    pattern = re.compile(r'<(thought|thinking)>(.*?)</\1>', re.DOTALL | re.IGNORECASE)
+    thoughts = []
+    for match in pattern.finditer(text):
+        thoughts.append(match.group(2).strip())
+    cleaned_text = pattern.sub('', text).strip()
+    return thoughts, cleaned_text
 
 def get_mcp_manager():
     mcp_path = os.path.join("desktop-commander-ext", "dist", "index.js")
@@ -32,25 +47,28 @@ async def initialize_mcp(mcp_mgr):
         console.print(f"[yellow]DesktopCommander MCP initialization skipped: {e}[/yellow]")
         return None
 
-def run_tui(initial_environment_id=None):
+def run_tui(initial_environment_id=None, default_show_thoughts=True):
     client = AntigravityClient()
     mcp_mgr = get_mcp_manager()
 
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     tools = loop.run_until_complete(initialize_mcp(mcp_mgr)) if mcp_mgr else None
-    
+
     session = PromptSession()
     active_interaction_id = None
     active_environment_id = initial_environment_id
-    
+    show_thoughts = default_show_thoughts
+
     plugin_info = conductor.get_plugin_info()
     plugin_status_str = f"Conductor Plugin: Active (v{plugin_info['version']})" if plugin_info["installed"] else "Conductor Plugin: Available"
+    thoughts_status_str = "Ativado" if show_thoughts else "Desativado"
 
     welcome_msg = (
         f"[bold green]Coderagy CLI Interactive Mode[/bold green]\n"
         f"[dim]{plugin_status_str} - Conversational Spec-Driven Development[/dim]\n\n"
         "Commands:\n"
+        "  - '/thoughts [on|off]': Visualizar pensamento do agente em tempo real (Padrão: ativado)\n"
         "  - '/conductor:status' or '/status': View Conductor project tracks and progress\n"
         "  - '/conductor:tracks' or '/tracks': List all registered tracks\n"
         "  - '/conductor:new-track <name>': Create a new Spec-Driven Development track\n"
@@ -62,7 +80,7 @@ def run_tui(initial_environment_id=None):
         "  - 'exit': Quit"
     )
     console.print(Panel(welcome_msg, title="Welcome to Coderagy"))
-    
+
     if active_environment_id:
         console.print(f"[bold green]Resuming session with environment: {active_environment_id}[/bold green]")
 
@@ -76,8 +94,27 @@ def run_tui(initial_environment_id=None):
 
             if not cleaned:
                 continue
-            
+
             # --- Slash Commands ---
+            # 0. Thoughts Toggle
+            if cleaned.lower().startswith('/thoughts') or cleaned.lower().startswith('/thought'):
+                parts = cleaned.split()
+                if len(parts) > 1:
+                    arg = parts[1].lower()
+                    if arg in ['on', 'true', '1', 'ativar', 'sim', 'enable']:
+                        show_thoughts = True
+                    elif arg in ['off', 'false', '0', 'desativar', 'nao', 'não', 'disable']:
+                        show_thoughts = False
+                    else:
+                        console.print("[yellow]Uso: /thoughts [on|off][/yellow]")
+                        continue
+                else:
+                    show_thoughts = not show_thoughts
+
+                status_label = "[bold green]ATIVADA[/bold green]" if show_thoughts else "[bold red]DESATIVADA[/bold red]"
+                console.print(f"Visualização do pensamento do agente: {status_label}")
+                continue
+
             # 1. Conductor Status
             if cleaned.lower() in ['/status', '/conductor', '/conductor:status', '/conductor status']:
                 console.print(conductor.format_status_report())
@@ -146,7 +183,7 @@ def run_tui(initial_environment_id=None):
                 except Exception as e:
                     console.print(Panel(f"[bold red]Download failed: {e}[/bold red]", title="Error"))
                 continue
-            
+
             # 7. MCP Tools
             if cleaned.lower().startswith('/tools'):
                 if mcp_mgr:
@@ -155,7 +192,7 @@ def run_tui(initial_environment_id=None):
                 else:
                     console.print("[yellow]MCP host is not connected.[/yellow]")
                 continue
-                
+
             if cleaned.lower().startswith('/call'):
                 if not mcp_mgr:
                     console.print("[yellow]MCP host is not connected.[/yellow]")
@@ -166,13 +203,41 @@ def run_tui(initial_environment_id=None):
                     continue
                 tool_name = parts[1]
                 args = json.loads(parts[2]) if len(parts) > 2 else {}
-                
+
                 result = loop.run_until_complete(mcp_mgr.call_tool(tool_name, args))
                 console.print(Panel(str(result), title=f"Tool Output: {tool_name}"))
                 continue
-            
-            # --- Default Agent Interaction Loop ---
-            with console.status("[bold green]Thinking...[/bold green]"):
+
+            # --- Default Agent Interaction Loop with Real-Time Thinking ---
+            def handle_thought(thought_text, idx):
+                if show_thoughts and thought_text and thought_text.strip():
+                    console.print(Panel(
+                        thought_text.strip(),
+                        title=f"[bold magenta]🤔 Pensamento do Agente (Etapa #{idx+1})[/bold magenta]",
+                        border_style="magenta"
+                    ))
+
+            def handle_step(action_type, details, idx):
+                if show_thoughts and details:
+                    if action_type == "code_execution":
+                        console.print(Panel(
+                            f"[cyan]{details.strip()}[/cyan]",
+                            title=f"[bold cyan]⚡ Executando Sandbox #{idx+1}[/bold cyan]",
+                            border_style="cyan"
+                        ))
+                    elif action_type == "code_result":
+                        res_str = details.strip()
+                        if len(res_str) > 300:
+                            res_str = res_str[:300] + "... [dim](truncado)[/dim]"
+                        console.print(f"[dim green]↳ Saída: {res_str}[/dim green]")
+                    elif action_type == "mcp_tool":
+                        console.print(f"[bold yellow]🔧 Ferramenta MCP:[/bold yellow] [dim]{details}[/dim]")
+                    elif action_type == "google_search":
+                        console.print(f"[bold blue]🔍 Busca Google:[/bold blue] [dim]{details}[/dim]")
+                    elif action_type == "url_fetch":
+                        console.print(f"[bold blue]🌐 Leitura URL:[/bold blue] [dim]{details}[/dim]")
+
+            with console.status("[bold green]O agente está trabalhando...[/bold green]"):
                 if active_interaction_id:
                     interaction = client.send_follow_up(active_interaction_id, active_environment_id, cleaned)
                     active_interaction_id = interaction.id
@@ -187,19 +252,27 @@ def run_tui(initial_environment_id=None):
 
                     interaction = client.create_interaction(agent_prompt, active_environment_id)
                     active_interaction_id = interaction.id
-                    active_environment_id = interaction.environment_id
+                    active_environment_id = getattr(interaction, 'environment_id', active_environment_id)
 
-                # Polling
-                while True:
-                    interaction = client.client.interactions.get(active_interaction_id)
-                    if interaction.status == "completed":
-                        console.print(Panel(interaction.output_text, title="Agent Response"))
-                        break
-                    elif interaction.status == "failed":
-                        console.print(Panel(str(interaction.error), title="Agent Error", style="red"))
-                        break
-                    time.sleep(2)
-            
+                raw_output = client.monitor_interaction(
+                    active_interaction_id,
+                    on_thought=handle_thought,
+                    on_step=handle_step
+                )
+
+            # Check for embedded thought tags if any
+            embedded_thoughts, clean_response = parse_embedded_thoughts(raw_output)
+            if show_thoughts and embedded_thoughts:
+                for ethought in embedded_thoughts:
+                    console.print(Panel(
+                        ethought,
+                        title="[bold magenta]🤔 Pensamento do Agente[/bold magenta]",
+                        border_style="magenta"
+                    ))
+
+            final_text = clean_response if clean_response else raw_output
+            console.print(Panel(final_text, title="Agent Response", border_style="green"))
+
         except Exception as e:
             console.print(f"[red]Error: {e}[/red]")
 

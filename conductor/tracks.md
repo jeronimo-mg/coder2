@@ -21,3 +21,6 @@ This file tracks all major tracks for the project. Each track has its own detail
 
 - [x] **Track: Conductor Integration**
   *Link: [./tracks/conductor_integration_20260911/](./tracks/conductor_integration_20260911/)*
+
+- [x] **Track: Agent Thinking Visibility**
+  *Link: [./tracks/agent_thinking_visibility_20260916/](./tracks/agent_thinking_visibility_20260916/)*
