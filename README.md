@@ -7,7 +7,7 @@ Coderagy is a CLI tool designed to facilitate AI-assisted code generation using 
 - **Agent Orchestration**: Interact with the `antigravity-preview-05-2026` agent to generate code in a remote Linux sandbox.
 - **Sandbox Persistence**: Reusable sandbox environments. State is stored locally to allow for seamless task resumption.
 - **Gemini CLI Extensions**:
-  - **Conductor**: Context-driven development and project tracking.
+  - **Conductor**: Context-driven development (CDD) and Spec-Driven Development (SDD) project tracking.
   - **DesktopCommander**: Advanced filesystem management, process control, and interactive terminal capabilities.
 - **Secure Code Extraction**: Download and extract code/environment snapshots from sandboxed environments.
 - **Interactive TUI**: Rich terminal interface with conversation context persistence, powered by `rich` and `prompt_toolkit`.
@@ -21,7 +21,7 @@ Coderagy is a CLI tool designed to facilitate AI-assisted code generation using 
    pip install -r requirements.txt
    npm install
    ```
-4. Set your `GEMINI_API_KEY` environment variable.
+4. Set your `GEMINI_API_KEY` environment variable in `.env`.
 
 ## Usage
 
@@ -33,7 +33,30 @@ python main.py init <project_name>
 
 ### Launch Interactive Mode
 ```bash
-python main.py --interactive
+python main.py
+```
+Inside the interactive mode, use:
+- `/conductor:status` or `/status`: View Conductor tracks and progress
+- `/conductor:tracks`: List registered tracks
+- `/conductor:new-track <name>`: Create a new track
+- `/conductor:context`: View current SDD context injected into the agent
+- `/download`: Download the remote sandbox snapshot
+- `/tools`: List MCP tools
+- `/call <tool> <json>`: Execute an MCP tool
+
+### Use Conductor via CLI
+```bash
+# View current project status and progress
+python main.py conductor status
+
+# List all registered tracks
+python main.py conductor tracks
+
+# Create a new track
+python main.py conductor new-track --name "Feature Name"
+
+# Inspect SDD context prepared for the AI agent
+python main.py conductor context
 ```
 
 ### Download Project Sandbox
@@ -57,7 +80,8 @@ python main.py cleanup <project_name>
 - **Phase 2**: CLI Integration (Completed)
 - **Phase 3**: UI/UX Modernization (Completed)
 - **Phase 4**: Sandbox Persistence/Reuse (Completed)
-- **Phase 5**: Integration of Gemini CLI Extensions and Robust Download (Completed)
+- **Phase 5**: Integration of Gemini CLI Extensions (Conductor & DesktopCommander) (Completed)
+- **Phase 6**: MCP Host Integration (Planned)
 
 ## Disclaimer
-Ensure your API key is managed securely via environment variables. Do not hardcode credentials in any project files.
+Ensure your API key is managed securely via environment variables or `.env`. Do not hardcode credentials in any project files.

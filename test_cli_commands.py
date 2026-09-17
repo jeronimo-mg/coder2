@@ -21,6 +21,13 @@ class TestCLICommands(unittest.TestCase):
         self.assertEqual(f.getvalue(), "Project 'test_cleanup' sandbox cleaned.\n")
         self.assertFalse(os.path.exists(os.path.join(".sandbox", "test_cleanup.json")))
 
+    def test_conductor_status_command(self):
+        f = io.StringIO()
+        with contextlib.redirect_stdout(f):
+            main(["conductor", "status"])
+        output = f.getvalue()
+        self.assertIn("CONDUCTOR STATUS OVERVIEW", output)
+
     def tearDown(self):
         # Clean up files created during test
         for name in ["test_project", "test_cleanup"]:
