@@ -24,14 +24,43 @@ Coderagy is a CLI tool designed to facilitate AI-assisted code generation using 
 
 ## Installation
 
-1. Clone this repository.
-2. Ensure you have Node.js (v20+) and Python (v3.10+) installed.
-3. Install dependencies:
+1. **Clone this repository:**
+   ```bash
+   git clone https://github.com/jeronimo-mg/coder2.git
+   cd coder2
+   ```
+
+2. **Prerequisites:**
+   - Python 3.10+
+   - Node.js 18+
+
+3. **Install Python dependencies:**
    ```bash
    pip install -r requirements.txt
-   npm install
    ```
-4. Set your `GEMINI_API_KEY` environment variable in `.env`.
+
+4. **Install DesktopCommander (MCP) dependencies:**
+   ```bash
+   cd desktop-commander
+   npm install
+   cd ..
+   ```
+
+   > **Windows (PowerShell) Note:** If you encounter a script execution policy error (`PSSecurityException` regarding `npm.ps1`), run using `.cmd`:
+   > ```powershell
+   > npm.cmd install
+   > ```
+   > or temporarily bypass execution restrictions for the current PowerShell session:
+   > ```powershell
+   > Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+   > npm install
+   > ```
+
+5. **Configure API key:**
+   Create a `.env` file in the project root:
+   ```env
+   GEMINI_API_KEY=your_api_key_here
+   ```
 
 ## Usage
 
