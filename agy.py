@@ -28,7 +28,7 @@ interaction = client.interactions.create(
     tools=tools,
     agent_config={
         'type': 'antigravity',
-        'model': 'models/gemini-3.8-flash',
+        'model': 'antigravity-preview-05-2026',
     },
     environment={
         'type': 'remote',

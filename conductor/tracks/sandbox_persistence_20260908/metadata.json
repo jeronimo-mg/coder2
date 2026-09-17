@@ -1,0 +1,8 @@
+{
+  "track_id": "sandbox_persistence_20260908",
+  "type": "feature",
+  "status": "new",
+  "created_at": "2026-09-08T00:00:00Z",
+  "updated_at": "2026-09-08T00:00:00Z",
+  "description": "Implementar persistência e reutilização de sandbox"
+}

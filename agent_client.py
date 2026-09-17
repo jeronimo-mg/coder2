@@ -5,6 +5,7 @@ import requests
 import os
 import tarfile
 from storage import SandboxStorage
+from rich.progress import Progress, DownloadColumn, BarColumn, TextColumn, TaskProgressColumn, TimeRemainingColumn
 
 class AntigravityClient:
     def __init__(self, project_name="default"):
@@ -13,22 +14,31 @@ class AntigravityClient:
         self.storage = SandboxStorage()
         self.project_name = project_name
 
-    def create_interaction(self, input_text):
-        state = self.storage.load_state(self.project_name)
+    def create_interaction(self, input_text, environment_id=None):
+        # If environment_id is provided, reuse it by passing it directly as the environment parameter.
+        # Otherwise, use 'remote' to create a new one.
+        env_config = environment_id if environment_id else {'type': 'remote'}
         
         interaction = self.client.interactions.create(
             agent='antigravity-preview-05-2026',
             input=input_text,
             background=True,
-            environment={'type': 'remote'}
+            environment=env_config
         )
-        
-        # Save interaction ID and environment ID as part of state
-        self.storage.save_state(self.project_name, {
-            "interaction_id": str(interaction.id),
-            "environment_id": str(interaction.environment_id)
-        })
+        # Debugging log
+        print(f"DEBUG: Interaction created. ID: {interaction.id}, Env ID: {interaction.environment_id}")
         return interaction
+
+    def send_follow_up(self, interaction_id, environment_id, input_text):
+        # Use previous_interaction_id to continue the conversation
+        # AND pass environment_id directly as the environment parameter
+        return self.client.interactions.create(
+            agent='antigravity-preview-05-2026',
+            input=input_text,
+            background=True,
+            previous_interaction_id=interaction_id,
+            environment=environment_id
+        )
 
     def archive_sandbox(self):
         # Trigger an archive creation in the remote sandbox using tar
@@ -67,20 +77,44 @@ class AntigravityClient:
         
         headers = {"x-goog-api-key": self.api_key}
         
-        response = requests.get(url, params={"alt": "media"}, headers=headers, allow_redirects=True, stream=True)
-        response.raise_for_status()
-        
-        snapshot_path = os.path.join(destination_dir, "snapshot_env.tar")
-        os.makedirs(destination_dir, exist_ok=True)
-        
-        with open(snapshot_path, "wb") as f:
-            for chunk in response.iter_content(chunk_size=8192):
-                f.write(chunk)
+        try:
+            with requests.get(url, params={"alt": "media"}, headers=headers, allow_redirects=True, stream=True) as response:
+                response.raise_for_status()
                 
-        # Extração
-        import tarfile
-        with tarfile.open(snapshot_path) as tar:
-            tar.extractall(path=destination_dir)
-            
-        print(f"Snapshot extraído em: {destination_dir}")
-        return destination_dir
+                total_size = int(response.headers.get('content-length', 0))
+                snapshot_path = os.path.join(destination_dir, "snapshot_env.tar")
+                os.makedirs(destination_dir, exist_ok=True)
+                
+                with Progress(
+                    TextColumn("[progress.description]{task.description}"),
+                    BarColumn(),
+                    TaskProgressColumn(),
+                    DownloadColumn(),
+                    TimeRemainingColumn(),
+                ) as progress:
+                    task = progress.add_task("Downloading snapshot...", total=total_size)
+                    
+                    with open(snapshot_path, "wb") as f:
+                        for chunk in response.iter_content(chunk_size=8192):
+                            if chunk:
+                                f.write(chunk)
+                                progress.update(task, advance=len(chunk))
+                
+                if total_size > 0 and os.path.getsize(snapshot_path) < total_size:
+                    raise Exception("Downloaded file is incomplete.")
+
+            # Extração
+            print(f"Extracting snapshot to: {destination_dir}...")
+            with tarfile.open(snapshot_path) as tar:
+                tar.extractall(path=destination_dir)
+                
+            os.remove(snapshot_path) # Cleanup
+            print(f"Snapshot successfully extracted in: {destination_dir}")
+            return destination_dir
+
+        except requests.exceptions.RequestException as e:
+            raise Exception(f"Download failed: {e}")
+        except tarfile.TarError as e:
+            raise Exception(f"Extraction failed: {e}")
+        except Exception as e:
+            raise Exception(f"An error occurred: {e}")
