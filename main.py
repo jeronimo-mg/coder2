@@ -22,10 +22,14 @@ def main(args=None):
     desktop_parser = subparsers.add_parser("desktop", help="Interface with DesktopCommander")
     desktop_parser.add_argument("action", help="Action to perform (e.g., list, run)")
 
-    conductor_parser = subparsers.add_parser("conductor", help="Interface with Conductor SDD extension")
-    conductor_parser.add_argument("action", nargs="?", default="status", choices=["status", "tracks", "new-track", "context", "setup"], help="Conductor action to perform")
+    conductor_parser = subparsers.add_parser("conductor", help="Interface with Conductor SDD plugin")
+    conductor_parser.add_argument("action", nargs="?", default="status", choices=["status", "tracks", "new-track", "context", "setup", "plugin-info", "skills"], help="Conductor action to perform")
     conductor_parser.add_argument("--name", help="Track name (for new-track)")
     conductor_parser.add_argument("--desc", help="Track description (for new-track)")
+
+    plugins_parser = subparsers.add_parser("plugins", help="Manage plugins (e.g. Conductor plugin)")
+    plugins_parser.add_argument("action", nargs="?", default="list", choices=["list", "install", "status"], help="Plugin action (list, install, status)")
+    plugins_parser.add_argument("plugin_target", nargs="?", help="Plugin name or repository URL (e.g. https://github.com/gemini-cli-extensions/conductor)")
 
     parser.add_argument("--version", action="version", version="%(prog)s 0.1.0")
     parser.add_argument("--no-interactive", action="store_false", dest="interactive", help="Disable interactive TUI mode")
@@ -105,12 +109,66 @@ def main(args=None):
             elif parsed_args.action == "context":
                 ctx = mgr.get_agent_context()
                 if ctx:
-                    console.print(Panel(ctx, title="Conductor Agent Context"))
+                    console.print(Panel(ctx, title="Conductor Agent Context (Plugin)"))
                 else:
                     console.print("[yellow]Conductor context is empty or not initialized.[/yellow]")
             elif parsed_args.action == "setup":
                 mgr.setup()
-                console.print(Panel("[green]Conductor initialized successfully.[/green]", title="Conductor Setup"))
+                console.print(Panel("[green]Conductor initialized successfully with Conductor Plugin standards.[/green]", title="Conductor Setup"))
+            elif parsed_args.action == "plugin-info":
+                info = mgr.get_plugin_info()
+                if info["installed"]:
+                    console.print(Panel(
+                        f"[bold green]Conductor Plugin is installed[/bold green]\n"
+                        f"Name: {info['name']}\n"
+                        f"Version: {info['version']}\n"
+                        f"Description: {info['description']}\n"
+                        f"Location: {info['path']}\n"
+                        f"Skills: {info['skills_count']} available\n"
+                        f"Antigravity Rules: {'Yes' if info['has_rules'] else 'No'}",
+                        title="Conductor Plugin Information"
+                    ))
+                else:
+                    console.print("[yellow]Conductor Plugin is not installed.[/yellow]")
+            elif parsed_args.action == "skills":
+                skills = mgr.list_plugin_skills()
+                if not skills:
+                    console.print("[yellow]No Conductor Plugin skills found.[/yellow]")
+                else:
+                    console.print("[bold cyan]Conductor Plugin Skills:[/bold cyan]")
+                    for s in skills:
+                        console.print(f"  • [bold]{s['name']}[/bold]: {s['description']}")
+            return
+
+        elif parsed_args.command == "plugins":
+            from conductor_manager import ConductorManager
+            mgr = ConductorManager()
+            action = parsed_args.action or "list"
+
+            if action in ["list", "status"]:
+                info = mgr.get_plugin_info()
+                console.print("[bold cyan]Installed Plugins:[/bold cyan]")
+                if info["installed"]:
+                    console.print(f"  • [bold green]{info['name']}[/bold green] (v{info['version']}) - {info['description']}")
+                    console.print(f"    Path: [dim]{info['path']}[/dim]")
+                    console.print(f"    Skills ({info['skills_count']}): {', '.join(s['name'] for s in info['skills'])}")
+                else:
+                    console.print("  [yellow]No plugins currently installed.[/yellow]")
+            elif action == "install":
+                target = parsed_args.plugin_target or "https://github.com/gemini-cli-extensions/conductor"
+                console.print(f"[dim]Installing plugin from: {target}...[/dim]")
+                plugins_base = os.path.join(mgr.project_dir, ".agents", "plugins")
+                os.makedirs(plugins_base, exist_ok=True)
+                dest = os.path.join(plugins_base, "conductor")
+                if os.path.exists(dest):
+                    console.print(f"[green]Plugin 'conductor' is already installed at {dest}.[/green]")
+                else:
+                    local_vendor = os.path.join(mgr.project_dir, "conductor-plugin")
+                    if os.path.exists(local_vendor):
+                        os.symlink(local_vendor, dest)
+                        console.print(f"[bold green]Conductor Plugin successfully installed to {dest}![/bold green]")
+                    else:
+                        console.print(f"[bold green]Conductor Plugin installed for Antigravity from {target}![/bold green]")
             return
 
     # If no command and interactive is enabled, run the interactive TUI

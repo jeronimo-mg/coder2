@@ -27,6 +27,29 @@ class TestCLICommands(unittest.TestCase):
             main(["conductor", "status"])
         output = f.getvalue()
         self.assertIn("CONDUCTOR STATUS OVERVIEW", output)
+        self.assertIn("Conductor Plugin", output)
+
+    def test_conductor_plugin_info_command(self):
+        f = io.StringIO()
+        with contextlib.redirect_stdout(f):
+            main(["conductor", "plugin-info"])
+        output = f.getvalue()
+        self.assertIn("Conductor Plugin", output)
+
+    def test_conductor_skills_command(self):
+        f = io.StringIO()
+        with contextlib.redirect_stdout(f):
+            main(["conductor", "skills"])
+        output = f.getvalue()
+        self.assertIn("conductor-setup", output)
+        self.assertIn("conductor-new-track", output)
+
+    def test_plugins_list_command(self):
+        f = io.StringIO()
+        with contextlib.redirect_stdout(f):
+            main(["plugins", "list"])
+        output = f.getvalue()
+        self.assertIn("conductor", output)
 
     def tearDown(self):
         # Clean up files created during test

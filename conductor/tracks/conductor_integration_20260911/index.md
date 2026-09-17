@@ -1,4 +1,4 @@
 # Track: Conductor Integration
 
 ## Overview
-This track covers the implementation of the Conductor Gemini CLI extension, allowing Coderagy to support context-driven development.
+This track covers the implementation of the Conductor Plugin for Antigravity and Gemini CLI, allowing Coderagy to support conversational spec-driven development.

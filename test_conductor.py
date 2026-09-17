@@ -63,6 +63,26 @@ class TestConductorManager(unittest.TestCase):
         context = self.manager.get_agent_context()
         self.assertIn("TestProject", context)
         self.assertIn("Python, google-genai", context)
+        self.assertIn("Conductor Plugin", context)
+
+    def test_plugin_detection_and_skills(self):
+        # Real workspace plugin checks
+        real_mgr = ConductorManager()
+        self.assertTrue(real_mgr.is_plugin_installed())
+        info = real_mgr.get_plugin_info()
+        self.assertTrue(info["installed"])
+        self.assertEqual(info["name"], "conductor")
+        self.assertEqual(info["type"], "plugin")
+        self.assertGreater(info["skills_count"], 0)
+
+        skills = real_mgr.list_plugin_skills()
+        skill_ids = [s["id"] for s in skills]
+        self.assertIn("conductor-setup", skill_ids)
+        self.assertIn("conductor-new-track", skill_ids)
+        self.assertIn("conductor-implement", skill_ids)
+
+        rules = real_mgr.get_plugin_rules()
+        self.assertIn("Native Modal Prompts", rules)
 
     def test_real_workspace_conductor(self):
         # Test against current coder2 directory

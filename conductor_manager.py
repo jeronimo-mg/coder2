@@ -6,12 +6,9 @@ from typing import Dict, List, Optional, Any
 
 class ConductorManager:
     """
-    Manages Conductor extension integration for Coderagy.
-    Provides Spec-Driven Development (SDD) capabilities:
-    - Status reporting from tracks and plans
-    - Project context extraction for AI agents
-    - Track creation and management
-    - Project scaffolding/setup
+    Manages Conductor plugin integration for Coderagy (Spec-Driven Development for Antigravity).
+    Evolved from the Gemini CLI extension to the ecosystem-wide Conductor Plugin,
+    enabling conversational Spec-Driven Development (SDD), agent skills, and persistent markdown artifacts.
     """
 
     def __init__(self, project_dir: str = "."):
@@ -23,6 +20,131 @@ class ConductorManager:
         self.tech_stack_file = os.path.join(self.conductor_dir, "tech-stack.md")
         self.workflow_file = os.path.join(self.conductor_dir, "workflow.md")
         self.tracks_dir = os.path.join(self.conductor_dir, "tracks")
+
+    def find_plugin_dir(self) -> Optional[str]:
+        """Locates the Conductor Plugin directory in workspace or global paths."""
+        candidates = [
+            os.path.join(self.project_dir, ".agents", "plugins", "conductor"),
+            os.path.join(self.project_dir, "conductor-plugin"),
+            os.path.join(self.project_dir, "conductor-ext"),
+            os.path.expanduser("~/.gemini/config/plugins/conductor"),
+        ]
+        for candidate in candidates:
+            if os.path.isdir(candidate):
+                return candidate
+        return None
+
+    def is_plugin_installed(self) -> bool:
+        """Checks if the Conductor Plugin is installed."""
+        return self.find_plugin_dir() is not None
+
+    def get_plugin_info(self) -> Dict[str, Any]:
+        """Returns metadata and status for the installed Conductor Plugin."""
+        plugin_dir = self.find_plugin_dir()
+        if not plugin_dir:
+            return {
+                "installed": False,
+                "name": "conductor",
+                "type": "plugin",
+                "path": None,
+                "version": "unknown",
+                "description": "Conductor plugin not found",
+                "skills": [],
+                "skills_count": 0,
+                "has_rules": False
+            }
+
+        manifest_file = os.path.join(plugin_dir, "plugin.json")
+        name = "conductor"
+        description = "Conductor Plugin for Spec-Driven Development"
+        if os.path.exists(manifest_file):
+            try:
+                with open(manifest_file, "r", encoding="utf-8") as f:
+                    manifest = json.load(f)
+                    name = manifest.get("name", name)
+                    description = manifest.get("description", description)
+            except Exception:
+                pass
+
+        version_file = os.path.join(plugin_dir, "VERSION")
+        version = "unknown"
+        if os.path.exists(version_file):
+            try:
+                with open(version_file, "r", encoding="utf-8") as f:
+                    version = f.read().strip()
+            except Exception:
+                pass
+
+        skills = self.list_plugin_skills()
+        rules_file = os.path.join(plugin_dir, "rules", "conductor_antigravity.md")
+        has_rules = os.path.exists(rules_file)
+
+        return {
+            "installed": True,
+            "name": name,
+            "type": "plugin",
+            "path": plugin_dir,
+            "version": version,
+            "description": description,
+            "skills": skills,
+            "skills_count": len(skills),
+            "has_rules": has_rules
+        }
+
+    def list_plugin_skills(self) -> List[Dict[str, Any]]:
+        """Lists skills bundled with the Conductor Plugin."""
+        plugin_dir = self.find_plugin_dir()
+        if not plugin_dir:
+            return []
+        skills_dir = os.path.join(plugin_dir, "skills")
+        if not os.path.exists(skills_dir):
+            return []
+
+        skills = []
+        for item in sorted(os.listdir(skills_dir)):
+            item_path = os.path.join(skills_dir, item)
+            skill_file = os.path.join(item_path, "SKILL.md")
+            if os.path.exists(skill_file):
+                skill_name = item
+                description = ""
+                try:
+                    with open(skill_file, "r", encoding="utf-8") as f:
+                        lines = f.readlines()
+                    in_frontmatter = False
+                    for line in lines:
+                        if line.strip() == "---":
+                            if not in_frontmatter:
+                                in_frontmatter = True
+                            else:
+                                break
+                        elif in_frontmatter:
+                            if line.startswith("name:"):
+                                skill_name = line.split(":", 1)[1].strip()
+                            elif line.startswith("description:"):
+                                description = line.split(":", 1)[1].strip()
+                except Exception:
+                    pass
+                skills.append({
+                    "id": item,
+                    "name": skill_name,
+                    "description": description,
+                    "path": skill_file
+                })
+        return skills
+
+    def get_plugin_rules(self) -> str:
+        """Returns Antigravity adapter rules from the Conductor Plugin if present."""
+        plugin_dir = self.find_plugin_dir()
+        if not plugin_dir:
+            return ""
+        rules_file = os.path.join(plugin_dir, "rules", "conductor_antigravity.md")
+        if os.path.exists(rules_file):
+            try:
+                with open(rules_file, "r", encoding="utf-8") as f:
+                    return f.read().strip()
+            except Exception:
+                pass
+        return ""
 
     def is_initialized(self) -> bool:
         """Checks whether the Conductor environment is initialized."""
@@ -216,11 +338,9 @@ class ConductorManager:
             if not active_track and t["status"] == "in_progress":
                 active_track = track_info
             elif not active_track and t["status"] == "pending":
-                # Candidate if no track is explicitly in progress
                 candidate_track = track_info
 
         if not active_track and raw_tracks:
-            # Check for any pending track
             for t_info in tracks_summary:
                 if t_info["status"] == "pending":
                     active_track = t_info
@@ -228,14 +348,12 @@ class ConductorManager:
 
         if active_track and active_track.get("plan"):
             plan_tasks = active_track["plan"]["tasks"]
-            # Find in-progress task
             for pt in plan_tasks:
                 if pt["status"] == "in_progress" and not current_task_desc:
                     current_task_desc = pt["description"]
                     current_phase_desc = pt["phase"]
                 elif pt["status"] == "pending" and not next_action_desc:
                     next_action_desc = pt["description"]
-            # If no in-progress task found, current is the first pending
             if not current_task_desc and next_action_desc:
                 current_task_desc = next_action_desc
                 for pt in plan_tasks:
@@ -260,10 +378,14 @@ class ConductorManager:
         elif total_tracks_count == 0:
             project_status = "Ready for initial track"
 
+        plugin_info = self.get_plugin_info()
+
         return {
             "initialized": True,
             "current_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "project_status": project_status,
+            "plugin_installed": plugin_info["installed"],
+            "plugin_version": plugin_info["version"],
             "active_track": active_track,
             "current_phase": current_phase_desc or "N/A",
             "current_task": current_task_desc or "N/A",
@@ -282,7 +404,7 @@ class ConductorManager:
         }
 
     def format_status_report(self) -> str:
-        """Generates a human-readable Conductor status summary report."""
+        """Generates a human-readable Conductor Plugin status summary report."""
         status = self.get_status()
         if not status["initialized"]:
             return (
@@ -291,17 +413,20 @@ class ConductorManager:
                 "Run `conductor setup` to initialize the project."
             )
 
+        plugin_info = self.get_plugin_info()
         report = []
         report.append("==================================================")
-        report.append(f"  CONDUCTOR STATUS OVERVIEW")
+        report.append("  CONDUCTOR STATUS OVERVIEW (Conductor Plugin)")
         report.append(f"  Date: {status['current_time']}")
         report.append(f"  Status: {status['project_status']}")
+        if plugin_info["installed"]:
+            report.append(f"  Plugin: Conductor Plugin (v{plugin_info['version']}) [Antigravity SDD]")
         report.append(f"  Overall Progress: {status['completed_tasks']}/{status['total_tasks']} tasks ({status['progress_percent']}%)")
         report.append("==================================================")
 
         if status["active_track"]:
             at = status["active_track"]
-            report.append(f"\n[Active Track]")
+            report.append("\n[Active Track]")
             report.append(f"  Name: {at['name']}")
             report.append(f"  Status: {at['status'].upper()}")
             report.append(f"  Current Phase: {status['current_phase']}")
@@ -376,13 +501,19 @@ class ConductorManager:
 
     def get_agent_context(self, max_chars: int = 4000) -> str:
         """
-        Gathers product definition, tech-stack, workflow, and active track plan
-        to provide a context injection block for AI agents.
+        Gathers product definition, tech-stack, workflow, active track plan,
+        and Conductor Plugin conversational SDD instructions to provide a
+        context injection block for AI agents.
         """
         if not self.is_initialized():
             return ""
 
-        context_blocks = ["### Conductor Spec-Driven Development Context\n"]
+        context_blocks = [
+            "### Conductor Plugin: Conversational Spec-Driven Development (SDD)\n"
+            "The Conductor Plugin is active. Drive development conversationally while maintaining "
+            "persistent markdown specifications (spec.md) and plans (plan.md). "
+            "Intelligently update project context, mark completed tasks, and ensure architectural rigor.\n"
+        ]
 
         # 1. Product definition
         if os.path.exists(self.product_file):
@@ -420,6 +551,11 @@ class ConductorManager:
                         context_blocks.append("##### Implementation Plan\n" + f.read()[:1000].strip())
                 except Exception:
                     pass
+
+        # 4. Antigravity plugin rules adapter
+        rules = self.get_plugin_rules()
+        if rules:
+            context_blocks.append("#### Conductor Antigravity Rules\n" + rules[:500].strip())
 
         full_context = "\n\n".join(context_blocks)
         if len(full_context) > max_chars:

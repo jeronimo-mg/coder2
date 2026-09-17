@@ -44,13 +44,18 @@ def run_tui(initial_environment_id=None):
     active_interaction_id = None
     active_environment_id = initial_environment_id
     
+    plugin_info = conductor.get_plugin_info()
+    plugin_status_str = f"Conductor Plugin: Active (v{plugin_info['version']})" if plugin_info["installed"] else "Conductor Plugin: Available"
+
     welcome_msg = (
-        "[bold green]Coderagy CLI Interactive Mode[/bold green]\n"
+        f"[bold green]Coderagy CLI Interactive Mode[/bold green]\n"
+        f"[dim]{plugin_status_str} - Conversational Spec-Driven Development[/dim]\n\n"
         "Commands:\n"
         "  - '/conductor:status' or '/status': View Conductor project tracks and progress\n"
         "  - '/conductor:tracks' or '/tracks': List all registered tracks\n"
         "  - '/conductor:new-track <name>': Create a new Spec-Driven Development track\n"
         "  - '/conductor:context': View current SDD context injected into the agent\n"
+        "  - '/conductor:plugin' or '/plugin': View Conductor Plugin details & skills\n"
         "  - '/download': Download sandbox snapshot\n"
         "  - '/tools': List available MCP tools\n"
         "  - '/call <tool> <json_args>': Execute MCP tool\n"
@@ -114,7 +119,22 @@ def run_tui(initial_environment_id=None):
                     console.print("[yellow]No Conductor context found or Conductor not initialized.[/yellow]")
                 continue
 
-            # 5. Download Snapshot
+            # 5. Conductor Plugin Info & Skills
+            if cleaned.lower() in ['/plugin', '/plugins', '/conductor:plugin', '/conductor plugin', '/skills', '/conductor:skills']:
+                info = conductor.get_plugin_info()
+                if info["installed"]:
+                    skills_desc = "\n".join([f"  • [bold]{s['name']}[/bold]: {s['description']}" for s in info["skills"]])
+                    console.print(Panel(
+                        f"[bold green]Conductor Plugin (v{info['version']})[/bold green]\n"
+                        f"{info['description']}\n\n"
+                        f"[bold cyan]Bundled Skills:[/bold cyan]\n{skills_desc}",
+                        title="Conductor Plugin"
+                    ))
+                else:
+                    console.print("[yellow]Conductor Plugin not found.[/yellow]")
+                continue
+
+            # 6. Download Snapshot
             if cleaned.lower().startswith('/download'):
                 dest = input("Enter destination path for download: ").strip('\"').strip("'")
                 if not active_environment_id:
@@ -127,7 +147,7 @@ def run_tui(initial_environment_id=None):
                     console.print(Panel(f"[bold red]Download failed: {e}[/bold red]", title="Error"))
                 continue
             
-            # 6. MCP Tools
+            # 7. MCP Tools
             if cleaned.lower().startswith('/tools'):
                 if mcp_mgr:
                     tools_result = loop.run_until_complete(mcp_mgr.list_tools())
@@ -157,13 +177,13 @@ def run_tui(initial_environment_id=None):
                     interaction = client.send_follow_up(active_interaction_id, active_environment_id, cleaned)
                     active_interaction_id = interaction.id
                 else:
-                    # Inject Conductor context on initial prompt if available
+                    # Inject Conductor Plugin context on initial prompt if available
                     agent_prompt = cleaned
                     if conductor.is_initialized():
                         sdd_context = conductor.get_agent_context(max_chars=2500)
                         if sdd_context:
                             agent_prompt = f"{sdd_context}\n\n---\nUser Request:\n{cleaned}"
-                            console.print("[dim]Enriched prompt with Conductor Spec-Driven Development context.[/dim]")
+                            console.print("[dim]Enriched prompt with Conductor Plugin context.[/dim]")
 
                     interaction = client.create_interaction(agent_prompt, active_environment_id)
                     active_interaction_id = interaction.id
