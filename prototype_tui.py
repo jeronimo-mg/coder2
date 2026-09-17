@@ -11,7 +11,15 @@ import json
 import threading
 import asyncio
 import re
-from mcp_manager import MCPHostManager, format_mcp_tools_context, get_mcp_tools_table
+from mcp_manager import (
+    MCPHostManager,
+    format_mcp_tools_context,
+    get_mcp_tools_table,
+    parse_mcp_tool_calls,
+    format_mcp_tool_result,
+    strip_mcp_tags,
+    run_sync,
+)
 
 console = Console()
 conductor = ConductorManager()
@@ -47,6 +55,77 @@ async def initialize_mcp(mcp_mgr):
     except Exception as e:
         console.print(f"[yellow]DesktopCommander MCP initialization skipped: {e}[/yellow]")
         return None
+
+def handle_chat_mcp_execution(
+    raw_output,
+    mcp_mgr,
+    client,
+    active_interaction_id,
+    active_environment_id,
+    loop,
+    handle_thought,
+    handle_step,
+    show_thoughts,
+    max_tool_turns=5,
+):
+    """
+    Detects <mcp_call> blocks in raw_output, executes tools via mcp_mgr,
+    and loops follow-ups back to the agent until execution completes or max turns reached.
+    Returns (final_raw_output, final_interaction_id, final_clean_response).
+    """
+    mcp_calls = parse_mcp_tool_calls(raw_output)
+    tool_turns = 0
+    current_raw = raw_output
+    current_interaction_id = active_interaction_id
+
+    while mcp_calls and tool_turns < max_tool_turns:
+        tool_turns += 1
+        results_text = []
+        for call in mcp_calls:
+            tool_name = call["name"]
+            tool_args = call.get("arguments", {})
+            call_summary = f"[bold cyan]🔧 Chamando Ferramenta MCP:[/bold cyan] {tool_name}\n[dim]Argumentos: {json.dumps(tool_args)}[/dim]"
+            console.print(Panel(call_summary, border_style="cyan"))
+
+            if mcp_mgr:
+                try:
+                    tool_res = run_sync(mcp_mgr.call_tool(tool_name, tool_args), loop)
+                    console.print(Panel(str(tool_res), title=f"[bold green]✅ Retorno MCP: {tool_name}[/bold green]", border_style="green"))
+                    results_text.append(format_mcp_tool_result(tool_name, tool_res))
+                except Exception as tool_err:
+                    console.print(f"[bold red]❌ Erro na execução da ferramenta {tool_name}: {tool_err}[/bold red]")
+                    results_text.append(format_mcp_tool_result(tool_name, None, error=str(tool_err)))
+            else:
+                console.print(f"[bold yellow]⚠️ MCP Host não conectado para executar {tool_name}[/bold yellow]")
+                results_text.append(format_mcp_tool_result(tool_name, None, error="MCP host is not connected."))
+
+        feedback_payload = "\n\n".join(results_text)
+        console.print("[dim]Enviando resultados das ferramentas MCP ao agente...[/dim]")
+        try:
+            interaction = client.send_follow_up(
+                current_interaction_id,
+                active_environment_id,
+                feedback_payload
+            )
+            current_interaction_id = interaction.id
+            current_raw = client.monitor_interaction(
+                current_interaction_id,
+                on_thought=handle_thought,
+                on_step=handle_step
+            )
+            embedded_thoughts, _ = parse_embedded_thoughts(current_raw)
+            if show_thoughts and embedded_thoughts:
+                for ethought in embedded_thoughts:
+                    console.print(Panel(ethought, title="[bold magenta]🤔 Pensamento do Agente[/bold magenta]", border_style="magenta"))
+            mcp_calls = parse_mcp_tool_calls(current_raw)
+        except Exception as follow_err:
+            console.print(f"[bold red]Erro ao processar retorno MCP com o agente: {follow_err}[/bold red]")
+            current_interaction_id = None
+            break
+
+    _, clean_resp = parse_embedded_thoughts(current_raw)
+    clean_resp = strip_mcp_tags(clean_resp)
+    return current_raw, current_interaction_id, clean_resp
 
 def run_tui(initial_environment_id=None, default_show_thoughts=True):
     client = AntigravityClient()
@@ -189,7 +268,7 @@ def run_tui(initial_environment_id=None, default_show_thoughts=True):
             # 7. MCP Tools
             if cleaned.lower().startswith('/tools'):
                 if mcp_mgr:
-                    tools_result = loop.run_until_complete(mcp_mgr.list_tools())
+                    tools_result = run_sync(mcp_mgr.list_tools(), loop)
                     tool_items = getattr(tools_result, "tools", tools_result) if tools_result else []
                     console.print(get_mcp_tools_table(tool_items))
                 else:
@@ -207,7 +286,7 @@ def run_tui(initial_environment_id=None, default_show_thoughts=True):
                 tool_name = parts[1]
                 args = json.loads(parts[2]) if len(parts) > 2 else {}
 
-                result = loop.run_until_complete(mcp_mgr.call_tool(tool_name, args))
+                result = run_sync(mcp_mgr.call_tool(tool_name, args), loop)
                 console.print(Panel(str(result), title=f"Tool Output: {tool_name}"))
                 continue
 
@@ -338,6 +417,20 @@ def run_tui(initial_environment_id=None, default_show_thoughts=True):
                         title="[bold magenta]🤔 Pensamento do Agente[/bold magenta]",
                         border_style="magenta"
                     ))
+
+            # Automated MCP Tool Execution via Chat
+            if parse_mcp_tool_calls(raw_output):
+                raw_output, active_interaction_id, clean_response = handle_chat_mcp_execution(
+                    raw_output,
+                    mcp_mgr,
+                    client,
+                    active_interaction_id,
+                    active_environment_id,
+                    loop,
+                    handle_thought,
+                    handle_step,
+                    show_thoughts,
+                )
 
             final_text = clean_response.strip() if clean_response.strip() else raw_output.strip()
             if final_text:

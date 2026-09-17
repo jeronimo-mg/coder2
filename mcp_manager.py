@@ -1,5 +1,8 @@
+import concurrent.futures
 import asyncio
 import os
+import re
+import json
 from contextlib import AsyncExitStack
 from typing import List, Optional, Any, Dict
 from mcp import ClientSession, StdioServerParameters
@@ -145,6 +148,9 @@ def format_mcp_tools_context(tools: Optional[List[Any]]) -> str:
     lines = [
         "## Local MCP Tools (DesktopCommander)",
         "The host environment has Model Context Protocol (MCP) local tools available.",
+        "To invoke any local tool, output a tool call tag in this exact format:",
+        '<mcp_call name="tool_name">{"arg_name": "arg_value"}</mcp_call>',
+        "",
         "Available Tools:"
     ]
 
@@ -186,3 +192,120 @@ def get_mcp_tools_table(tools: Optional[List[Any]]) -> Table:
         table.add_row(name, desc or "(no description)", params_str)
 
     return table
+
+
+def parse_mcp_tool_calls(text: Optional[str]) -> List[Dict[str, Any]]:
+    """
+    Parses <mcp_call name="...">...</mcp_call> blocks from agent output.
+    Returns list of dicts with keys: name, arguments, raw, and optionally error.
+    """
+    if not text:
+        return []
+
+    pattern = re.compile(r'<mcp_call\s+(?:name|tool)=["\']([^"\']+)["\']\s*>(.*?)</mcp_call>', re.DOTALL | re.IGNORECASE)
+    tool_calls = []
+
+    for match in pattern.finditer(text):
+        name = match.group(1).strip()
+        body = match.group(2).strip()
+        raw = match.group(0)
+
+        args = {}
+        error = None
+        if body:
+            try:
+                parsed = json.loads(body)
+                if isinstance(parsed, dict):
+                    args = parsed
+                else:
+                    args = {"input": parsed}
+            except Exception as e:
+                error = f"Invalid JSON payload: {e}"
+
+        call_info: Dict[str, Any] = {
+            "name": name,
+            "arguments": args,
+            "raw": raw,
+        }
+        if error:
+            call_info["error"] = error
+        tool_calls.append(call_info)
+
+    return tool_calls
+
+
+def format_mcp_tool_result(name: str, result: Any, error: Optional[str] = None) -> str:
+    """
+    Formats the tool output into <mcp_result> XML tags for agent feedback.
+    """
+    if error:
+        return f'<mcp_result name="{name}" status="error">\n{error}\n</mcp_result>'
+
+    if isinstance(result, (dict, list)):
+        formatted_content = json.dumps(result, indent=2)
+    else:
+        formatted_content = str(result)
+
+    return f'<mcp_result name="{name}" status="success">\n{formatted_content}\n</mcp_result>'
+
+
+async def execute_mcp_tool_calls(manager: MCPHostManager, tool_calls: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """
+    Asynchronously executes a list of parsed tool calls using an MCPHostManager instance.
+    """
+    results = []
+    for call in tool_calls:
+        name = call.get("name", "")
+        args = call.get("arguments", {})
+        if "error" in call:
+            results.append({
+                "name": name,
+                "result": None,
+                "error": call["error"],
+            })
+            continue
+
+        try:
+            res = await manager.call_tool(name, args)
+            results.append({
+                "name": name,
+                "result": res,
+                "error": None,
+            })
+        except Exception as e:
+            results.append({
+                "name": name,
+                "result": None,
+                "error": str(e),
+            })
+
+    return results
+
+
+def strip_mcp_tags(text: Optional[str]) -> str:
+    """
+    Strips <mcp_call> tags from text to prepare clean user-facing response.
+    """
+    if not text:
+        return ""
+    pattern = re.compile(r'<mcp_call\s+.*?/mcp_call>', re.DOTALL | re.IGNORECASE)
+    return pattern.sub('', text).strip()
+
+
+def run_sync(coro, loop: Optional[asyncio.AbstractEventLoop] = None) -> Any:
+    """
+    Safely executes an async coroutine from a synchronous context,
+    even if an asyncio event loop is already active in the current thread.
+    """
+    try:
+        running_loop = asyncio.get_running_loop()
+    except RuntimeError:
+        running_loop = None
+
+    if running_loop and running_loop.is_running():
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+            return executor.submit(asyncio.run, coro).result()
+    elif loop and not loop.is_closed():
+        return loop.run_until_complete(coro)
+    else:
+        return asyncio.run(coro)
