@@ -440,10 +440,20 @@ class AntigravityClient:
                 if total_size > 0 and os.path.getsize(snapshot_path) < total_size:
                     raise Exception("Downloaded file is incomplete.")
 
-            # Extraction
+            # Extraction (with filtering of Linux container system directories like usr/, etc/, var/)
             print(f"Extracting snapshot to: {destination_dir}...")
             with tarfile.open(snapshot_path) as tar:
-                tar.extractall(path=destination_dir)
+                def is_sandbox_system_path(name: str) -> bool:
+                    clean = name.replace(chr(92), '/').strip('/')
+                    while clean.startswith('./'):
+                        clean = clean[2:].strip('/')
+                    first_part = clean.split('/')[0] if '/' in clean else clean
+                    return first_part in {
+                        'usr', 'etc', 'var', 'lib', 'lib64', 'bin', 'sbin', 'boot', 'dev', 'proc', 'sys', 'run'
+                    }
+
+                filtered_members = [m for m in tar.getmembers() if not is_sandbox_system_path(m.name)]
+                tar.extractall(path=destination_dir, members=filtered_members)
 
             os.remove(snapshot_path)
             print(f"Snapshot successfully extracted in: {destination_dir}")

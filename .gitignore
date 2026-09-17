@@ -15,6 +15,12 @@ dist/
 npm-debug.log
 yarn-error.log
 
+# Sandbox container artifacts
+usr/
+etc/
+var/
+snapshot_env.tar
+
 # IDE / System
 .vscode/
 .idea/
