@@ -208,7 +208,7 @@ def run_tui(initial_environment_id=None, default_show_thoughts=True):
                 console.print(Panel(str(result), title=f"Tool Output: {tool_name}"))
                 continue
 
-            # --- Default Agent Interaction Loop with Real-Time Thinking ---
+            # --- Default Agent Interaction Loop with Real-Time Thinking & Resilience ---
             def handle_thought(thought_text, idx):
                 if show_thoughts and thought_text and thought_text.strip():
                     console.print(Panel(
@@ -238,11 +238,27 @@ def run_tui(initial_environment_id=None, default_show_thoughts=True):
                         console.print(f"[bold blue]🌐 Leitura URL:[/bold blue] [dim]{details}[/dim]")
 
             with console.status("[bold green]O agente está trabalhando...[/bold green]"):
+                interaction = None
                 if active_interaction_id:
-                    interaction = client.send_follow_up(active_interaction_id, active_environment_id, cleaned)
-                    active_interaction_id = interaction.id
-                else:
-                    # Inject Conductor Plugin context on initial prompt if available
+                    try:
+                        interaction = client.send_follow_up(active_interaction_id, active_environment_id, cleaned)
+                        active_interaction_id = interaction.id
+                        new_env = getattr(interaction, 'environment_id', None)
+                        if new_env and isinstance(new_env, str):
+                            active_environment_id = new_env
+                    except Exception as follow_up_err:
+                        err_str = str(follow_up_err).lower()
+                        # Fallback for HTTP 400 / Precondition check failed / invalid_request
+                        if "400" in str(follow_up_err) or "precondition" in err_str or "invalid_request" in err_str:
+                            console.print("[dim yellow]⚠️ Continuação da interação anterior indisponível (pré-condição falhou). Iniciando nova interação com contexto preservado...[/dim yellow]")
+                            active_interaction_id = None
+                            interaction = None
+                        else:
+                            active_interaction_id = None
+                            raise follow_up_err
+
+                if not interaction:
+                    # Inject Conductor Plugin context on prompt if available
                     agent_prompt = cleaned
                     if conductor.is_initialized():
                         sdd_context = conductor.get_agent_context(max_chars=2500)
@@ -250,15 +266,49 @@ def run_tui(initial_environment_id=None, default_show_thoughts=True):
                             agent_prompt = f"{sdd_context}\n\n---\nUser Request:\n{cleaned}"
                             console.print("[dim]Enriched prompt with Conductor Plugin context.[/dim]")
 
-                    interaction = client.create_interaction(agent_prompt, active_environment_id)
-                    active_interaction_id = interaction.id
-                    active_environment_id = getattr(interaction, 'environment_id', active_environment_id)
+                    try:
+                        interaction = client.create_interaction(agent_prompt, active_environment_id)
+                        active_interaction_id = interaction.id
+                        new_env = getattr(interaction, 'environment_id', None)
+                        if new_env and isinstance(new_env, str):
+                            active_environment_id = new_env
+                    except Exception as create_err:
+                        err_str = str(create_err).lower()
+                        # Fallback if active_environment_id is stale / not found / rejected
+                        if active_environment_id and ("400" in str(create_err) or "precondition" in err_str or "not found" in err_str or "404" in str(create_err)):
+                            console.print("[dim yellow]⚠️ Sandbox anterior inacessível ou expirado. Provisionando novo sandbox remoto...[/dim yellow]")
+                            active_environment_id = None
+                            interaction = client.create_interaction(agent_prompt, None)
+                            active_interaction_id = interaction.id
+                            new_env = getattr(interaction, 'environment_id', None)
+                            if new_env and isinstance(new_env, str):
+                                active_environment_id = new_env
+                        else:
+                            active_interaction_id = None
+                            raise create_err
 
-                raw_output = client.monitor_interaction(
-                    active_interaction_id,
-                    on_thought=handle_thought,
-                    on_step=handle_step
-                )
+                try:
+                    raw_output = client.monitor_interaction(
+                        active_interaction_id,
+                        on_thought=handle_thought,
+                        on_step=handle_step
+                    )
+                    # Item B: Update active_environment_id upon successful completion
+                    if getattr(client, 'last_environment_id', None):
+                        active_environment_id = client.last_environment_id
+                    elif active_interaction_id:
+                        try:
+                            direct_int = client.client.interactions.get(active_interaction_id)
+                            comp_env = getattr(direct_int, 'environment_id', None)
+                            if comp_env and isinstance(comp_env, str):
+                                active_environment_id = comp_env
+                                client.last_environment_id = comp_env
+                        except Exception:
+                            pass
+                except Exception as mon_err:
+                    # Item A: Invalidate interaction ID so next turn won't attempt to continue a failed interaction
+                    active_interaction_id = None
+                    raise mon_err
 
             # Fallback if raw_output was empty: retrieve interaction directly
             if not raw_output or not raw_output.strip():
@@ -286,6 +336,7 @@ def run_tui(initial_environment_id=None, default_show_thoughts=True):
                     console.print("[dim yellow]O agente concluiu a execução sem gerar resposta de texto.[/dim yellow]")
 
         except Exception as e:
+            active_interaction_id = None
             console.print(f"[red]Error: {e}[/red]")
 
 if __name__ == "__main__":

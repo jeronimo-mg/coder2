@@ -140,6 +140,21 @@ class AntigravityClient:
         self.client = genai.Client(api_key=self.api_key)
         self.storage = SandboxStorage()
         self.project_name = project_name
+        self.last_environment_id = None
+        self.last_interaction_id = None
+
+    def _sync_storage_env(self, interaction_id, env_id):
+        """Helper to safely synchronize environment_id and interaction_id to SandboxStorage."""
+        if env_id and isinstance(env_id, str):
+            self.last_environment_id = env_id
+            if self.project_name and self.project_name != "default" and hasattr(self, 'storage') and self.storage:
+                try:
+                    state = self.storage.load_state(self.project_name) or {}
+                except Exception:
+                    state = {}
+                state["interaction_id"] = interaction_id
+                state["environment_id"] = env_id
+                self.storage.save_state(self.project_name, state)
 
     def create_interaction(self, input_text, environment_id=None):
         env_config = environment_id if environment_id else {'type': 'remote'}
@@ -150,11 +165,15 @@ class AntigravityClient:
             background=True,
             environment=env_config
         )
-        print(f"DEBUG: Interaction created. ID: {interaction.id}, Env ID: {getattr(interaction, 'environment_id', None)}")
+        self.last_interaction_id = interaction.id
+        env_id = getattr(interaction, 'environment_id', None)
+        if env_id and isinstance(env_id, str):
+            self.last_environment_id = env_id
+
+        print(f"DEBUG: Interaction created. ID: {interaction.id}, Env ID: {env_id}")
 
         if self.project_name and self.project_name != "default" and hasattr(self, 'storage') and self.storage:
             state = {"interaction_id": interaction.id}
-            env_id = getattr(interaction, 'environment_id', None)
             if env_id and isinstance(env_id, str):
                 state["environment_id"] = env_id
             self.storage.save_state(self.project_name, state)
@@ -162,13 +181,23 @@ class AntigravityClient:
         return interaction
 
     def send_follow_up(self, interaction_id, environment_id, input_text):
-        return self.client.interactions.create(
-            agent='antigravity-preview-05-2026',
-            input=input_text,
-            background=True,
-            previous_interaction_id=interaction_id,
-            environment=environment_id
-        )
+        env_param = environment_id if environment_id else getattr(self, 'last_environment_id', None)
+        kwargs = {
+            'agent': 'antigravity-preview-05-2026',
+            'input': input_text,
+            'background': True,
+            'previous_interaction_id': interaction_id,
+        }
+        if env_param:
+            kwargs['environment'] = env_param
+
+        interaction = self.client.interactions.create(**kwargs)
+        self.last_interaction_id = interaction.id
+        env_id = getattr(interaction, 'environment_id', None)
+        if env_id and isinstance(env_id, str):
+            self.last_environment_id = env_id
+            self._sync_storage_env(interaction.id, env_id)
+        return interaction
 
     def monitor_interaction(self, interaction_id, on_thought=None, on_step=None, on_chunk=None, poll_interval=2, timeout=600):
         """
@@ -219,9 +248,13 @@ class AntigravityClient:
 
                     elif event_type == 'interaction.completed':
                         final_interaction = getattr(event, 'interaction', None)
+                        if final_interaction:
+                            self._sync_storage_env(interaction_id, getattr(final_interaction, 'environment_id', None))
+
                         # 1. First attempt to fetch the interaction object via standard get (has output_text populated)
                         try:
                             completed_full = self.client.interactions.get(interaction_id)
+                            self._sync_storage_env(interaction_id, getattr(completed_full, 'environment_id', None))
                             out = getattr(completed_full, 'output_text', None) or extract_output_text(completed_full)
                             if out:
                                 return out
@@ -242,12 +275,24 @@ class AntigravityClient:
 
                     elif event_type == 'error':
                         err = getattr(event, 'error', 'Stream error')
+                        # Resilient fallback check: verify if interaction is actually completed or still running
+                        try:
+                            check = self.client.interactions.get(interaction_id)
+                            self._sync_storage_env(interaction_id, getattr(check, 'environment_id', None))
+                            if getattr(check, 'status', None) == "completed":
+                                return getattr(check, 'output_text', None) or extract_output_text(check) or ''.join(streamed_text_chunks)
+                            elif getattr(check, 'status', None) != "failed":
+                                # Stream closed prematurely but backend interaction is still in progress: break to polling loop
+                                break
+                        except Exception:
+                            pass
                         raise Exception(f"Interaction failed: {err}")
 
                 # If stream finished without explicit completed event
                 try:
                     completed_full = self.client.interactions.get(interaction_id)
-                    if completed_full.status == "completed":
+                    self._sync_storage_env(interaction_id, getattr(completed_full, 'environment_id', None))
+                    if getattr(completed_full, 'status', None) == "completed":
                         return getattr(completed_full, 'output_text', None) or extract_output_text(completed_full) or ''.join(streamed_text_chunks)
                 except Exception:
                     pass
@@ -261,6 +306,7 @@ class AntigravityClient:
         # Polling loop (used if streaming is not supported or connection dropped)
         while True:
             interaction = self.client.interactions.get(interaction_id)
+            self._sync_storage_env(interaction_id, getattr(interaction, 'environment_id', None))
             steps = getattr(interaction, 'steps', None) or []
 
             # Process new steps

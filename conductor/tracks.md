@@ -24,3 +24,6 @@ This file tracks all major tracks for the project. Each track has its own detail
 
 - [x] **Track: Agent Thinking Visibility**
   *Link: [./tracks/agent_thinking_visibility_20260916/](./tracks/agent_thinking_visibility_20260916/)*
+
+- [x] **Track: Interaction Resilience and Error Recovery**
+  *Link: [./tracks/interaction_resilience_and_error_recovery_20260916/](./tracks/interaction_resilience_and_error_recovery_20260916/)*
