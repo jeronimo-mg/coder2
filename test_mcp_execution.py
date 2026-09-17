@@ -103,15 +103,12 @@ class TestMCPExecution(unittest.IsolatedAsyncioTestCase):
         mock_client.monitor_interaction.return_value = "All operations completed successfully."
 
         raw_output = '<mcp_call name="check_health">{}</mcp_call>'
-        loop = asyncio.get_event_loop()
-
-        final_raw, final_id, clean_resp = handle_chat_mcp_execution(
+        final_raw, final_id, clean_resp = await handle_chat_mcp_execution(
             raw_output=raw_output,
             mcp_mgr=mock_mgr,
             client=mock_client,
             active_interaction_id="orig_int_1",
             active_environment_id="env_1",
-            loop=loop,
             handle_thought=lambda t, i: None,
             handle_step=lambda a, d, i: None,
             show_thoughts=False,

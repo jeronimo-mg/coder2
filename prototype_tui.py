@@ -18,7 +18,6 @@ from mcp_manager import (
     parse_mcp_tool_calls,
     format_mcp_tool_result,
     strip_mcp_tags,
-    run_sync,
 )
 
 console = Console()
@@ -56,13 +55,12 @@ async def initialize_mcp(mcp_mgr):
         console.print(f"[yellow]DesktopCommander MCP initialization skipped: {e}[/yellow]")
         return None
 
-def handle_chat_mcp_execution(
+async def handle_chat_mcp_execution(
     raw_output,
     mcp_mgr,
     client,
     active_interaction_id,
     active_environment_id,
-    loop,
     handle_thought,
     handle_step,
     show_thoughts,
@@ -89,7 +87,7 @@ def handle_chat_mcp_execution(
 
             if mcp_mgr:
                 try:
-                    tool_res = run_sync(mcp_mgr.call_tool(tool_name, tool_args), loop)
+                    tool_res = await mcp_mgr.call_tool(tool_name, tool_args)
                     console.print(Panel(str(tool_res), title=f"[bold green]✅ Retorno MCP: {tool_name}[/bold green]", border_style="green"))
                     results_text.append(format_mcp_tool_result(tool_name, tool_res))
                 except Exception as tool_err:
@@ -268,7 +266,7 @@ def run_tui(initial_environment_id=None, default_show_thoughts=True):
             # 7. MCP Tools
             if cleaned.lower().startswith('/tools'):
                 if mcp_mgr:
-                    tools_result = run_sync(mcp_mgr.list_tools(), loop)
+                    tools_result = loop.run_until_complete(mcp_mgr.list_tools())
                     tool_items = getattr(tools_result, "tools", tools_result) if tools_result else []
                     console.print(get_mcp_tools_table(tool_items))
                 else:
@@ -286,7 +284,7 @@ def run_tui(initial_environment_id=None, default_show_thoughts=True):
                 tool_name = parts[1]
                 args = json.loads(parts[2]) if len(parts) > 2 else {}
 
-                result = run_sync(mcp_mgr.call_tool(tool_name, args), loop)
+                result = loop.run_until_complete(mcp_mgr.call_tool(tool_name, args))
                 console.print(Panel(str(result), title=f"Tool Output: {tool_name}"))
                 continue
 
@@ -420,16 +418,17 @@ def run_tui(initial_environment_id=None, default_show_thoughts=True):
 
             # Automated MCP Tool Execution via Chat
             if parse_mcp_tool_calls(raw_output):
-                raw_output, active_interaction_id, clean_response = handle_chat_mcp_execution(
-                    raw_output,
-                    mcp_mgr,
-                    client,
-                    active_interaction_id,
-                    active_environment_id,
-                    loop,
-                    handle_thought,
-                    handle_step,
-                    show_thoughts,
+                raw_output, active_interaction_id, clean_response = loop.run_until_complete(
+                    handle_chat_mcp_execution(
+                        raw_output,
+                        mcp_mgr,
+                        client,
+                        active_interaction_id,
+                        active_environment_id,
+                        handle_thought,
+                        handle_step,
+                        show_thoughts,
+                    )
                 )
 
             final_text = clean_response.strip() if clean_response.strip() else raw_output.strip()
