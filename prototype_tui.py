@@ -31,10 +31,10 @@ def parse_embedded_thoughts(text):
     return thoughts, cleaned_text
 
 def get_mcp_manager():
-    mcp_path = os.path.join("desktop-commander-ext", "dist", "index.js")
-    if os.path.exists(mcp_path):
-        return MCPHostManager(mcp_path)
-    return None
+    try:
+        return MCPHostManager.create_desktop_commander()
+    except Exception:
+        return None
 
 async def initialize_mcp(mcp_mgr):
     if not mcp_mgr:
